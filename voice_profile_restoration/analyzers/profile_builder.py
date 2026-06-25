@@ -5,26 +5,37 @@ from typing import List
 
 import numpy as np
 
-from voice_profile_restoration.analyzers.spectral_features import extract_spectral_features
+from .spectral_features import extract_spectral_features
 
 
-def build_speaker_profile(audio_files: List[str | Path]) -> dict:
+def build_average_profile(file_paths):
+    spectra = []
     all_features = []
 
-    for file_path in audio_files:
-        features = extract_spectral_features(file_path)
+    for path in file_paths:
+        features = extract_spectral_features(path)
         all_features.append(features)
 
-    if not all_features:
-        raise ValueError("No audio files provided")
+        normalized_spectrum = features["normalized_spectrum"]
+        spectrum = np.array(normalized_spectrum, dtype=np.float32)
+        spectra.append(spectrum)
 
-    # Collect keys
-    keys = all_features[0].keys()
+    if not spectra:
+        raise ValueError("No reference files provided")
 
-    averaged_profile = {}
+    avg_spectrum = np.mean(spectra, axis=0)
 
-    for key in keys:
-        values = [f[key] for f in all_features if isinstance(f[key], (int, float))]
-        averaged_profile[key] = float(np.mean(values))
+    return {
+        "average_spectrum": avg_spectrum.tolist(),
+        "spectral_tilt": float(np.mean([f["spectral_tilt"] for f in all_features])),
+        "sub": float(np.mean([f["sub"] for f in all_features])),
+        "low": float(np.mean([f["low"] for f in all_features])),
+        "low_mid": float(np.mean([f["low_mid"] for f in all_features])),
+        "mid": float(np.mean([f["mid"] for f in all_features])),
+        "presence": float(np.mean([f["presence"] for f in all_features])),
+        "air": float(np.mean([f["air"] for f in all_features])),
+    }
 
-    return averaged_profile
+
+def build_speaker_profile(file_paths):
+    return build_average_profile(file_paths)

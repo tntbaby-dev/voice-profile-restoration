@@ -15,6 +15,7 @@ BANDS = {
     "air": (5000, 10000),
 }
 
+FFT_SIZE = 16384
 
 def load_audio(file_path: str | Path) -> tuple[np.ndarray, int]:
     samples, sample_rate = sf.read(str(file_path), always_2d=False)
@@ -26,23 +27,44 @@ def load_audio(file_path: str | Path) -> tuple[np.ndarray, int]:
     return samples, int(sample_rate)
 
 
-def compute_magnitude_spectrum(samples: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
+def compute_magnitude_spectrum(
+    samples: np.ndarray,
+    sample_rate: int
+) -> tuple[np.ndarray, np.ndarray]:
+
     if len(samples) == 0:
         raise ValueError("Audio file is empty")
 
-    window = np.hanning(len(samples))
+    # Pad short audio
+    if len(samples) < FFT_SIZE:
+        samples = np.pad(samples, (0, FFT_SIZE - len(samples)))
+
+    # Trim long audio
+    samples = samples[:FFT_SIZE]
+
+    # Windowing
+    window = np.hanning(FFT_SIZE)
     windowed = samples * window
 
+    # FFT
     spectrum = np.abs(np.fft.rfft(windowed))
-    freqs = np.fft.rfftfreq(len(windowed), d=1.0 / sample_rate)
+    freqs = np.fft.rfftfreq(FFT_SIZE, d=1.0 / sample_rate)
 
     return freqs, spectrum
+
+
+def normalize_spectrum(spectrum: np.ndarray) -> np.ndarray:
+    power = spectrum ** 2
+    total = np.sum(power) + 1e-12
+
+    return power / total
 
 
 def compute_band_energies(freqs: np.ndarray, spectrum: np.ndarray) -> dict[str, float]:
     band_energies: dict[str, float] = {}
 
-    total_energy = float(np.sum(spectrum) + 1e-12)
+    power_spectrum = spectrum ** 2
+    total_energy = float(np.sum(power_spectrum) + 1e-12)
 
     for band_name, (low_hz, high_hz) in BANDS.items():
         idx = np.where((freqs >= low_hz) & (freqs < high_hz))[0]
@@ -51,7 +73,7 @@ def compute_band_energies(freqs: np.ndarray, spectrum: np.ndarray) -> dict[str, 
             band_energies[band_name] = 0.0
             continue
 
-        band_energy = float(np.sum(spectrum[idx]))
+        band_energy = float(np.sum(power_spectrum[idx]))
         band_energies[band_name] = band_energy / total_energy
 
     return band_energies
@@ -80,10 +102,17 @@ def extract_spectral_features(file_path: str | Path) -> dict[str, float]:
     band_energies = compute_band_energies(freqs, spectrum)
     spectral_tilt = compute_spectral_tilt(freqs, spectrum)
 
+    normalized_spectrum = normalize_spectrum(spectrum)
+
+    print("Spectrum Length:", len(normalized_spectrum))
+    print("Spectrum Sum:", np.sum(normalized_spectrum))
+
+
     features = {
         "sample_rate": float(sample_rate),
         "duration_sec": float(len(samples) / sample_rate),
         "spectral_tilt": spectral_tilt,
+        "normalized_spectrum": normalized_spectrum.tolist(),
         **band_energies,
     }
 

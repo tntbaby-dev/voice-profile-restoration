@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
-from scipy.signal import lfilter
 
 
 def db_to_linear(gain_db: float) -> float:
@@ -13,9 +12,14 @@ def db_to_linear(gain_db: float) -> float:
 
 def apply_fft_eq(samples: np.ndarray, sample_rate: int, eq_settings: dict) -> np.ndarray:
     """
-    Simple frequency-domain EQ for v1.
-    This is not a studio-grade parametric EQ yet, but it is enough
-    to prove the restoration pipeline end-to-end.
+    FFT-domain EQ processor.
+
+    Supports:
+    1. Legacy broad-band EQ settings:
+       low_shelf, low_mid, mid, presence, high_shelf
+
+    2. New adaptive spectral curve:
+       spectral_curve
     """
 
     n = len(samples)
@@ -27,30 +31,44 @@ def apply_fft_eq(samples: np.ndarray, sample_rate: int, eq_settings: dict) -> np
 
     gains = np.ones_like(freqs, dtype=np.float64)
 
-    # Low shelf-ish
-    low_shelf_db = float(eq_settings.get("low_shelf", 0.0))
-    gains[freqs < 200] *= db_to_linear(low_shelf_db)
+    if "spectral_curve" in eq_settings:
+        delta_db = np.asarray(eq_settings["spectral_curve"], dtype=np.float64)
 
-    # Low-mid bell-ish
-    low_mid_db = float(eq_settings.get("low_mid", 0.0))
-    gains[(freqs >= 200) & (freqs < 500)] *= db_to_linear(low_mid_db)
+        gain_curve = 10 ** (delta_db / 20.0)
 
-    # Mid bell-ish
-    mid_db = float(eq_settings.get("mid", 0.0))
-    gains[(freqs >= 500) & (freqs < 2000)] *= db_to_linear(mid_db)
+        if len(gain_curve) != len(freqs):
+            gain_curve = np.interp(
+                freqs,
+                np.linspace(freqs.min(), freqs.max(), len(gain_curve)),
+                gain_curve,
+            )
 
-    # Presence bell-ish
-    presence_db = float(eq_settings.get("presence", 0.0))
-    gains[(freqs >= 2000) & (freqs < 5000)] *= db_to_linear(presence_db)
+        gains *= gain_curve
 
-    # High shelf-ish
-    high_shelf_db = float(eq_settings.get("high_shelf", 0.0))
-    gains[freqs >= 5000] *= db_to_linear(high_shelf_db)
+        print("\n===== EQ APPLY DEBUG =====")
+        print("Gain Min:", np.min(gains))
+        print("Gain Max:", np.max(gains))
+        print("Gain Mean:", np.mean(gains))
+
+    else:
+        low_shelf_db = float(eq_settings.get("low_shelf", 0.0))
+        gains[freqs < 200] *= db_to_linear(low_shelf_db)
+
+        low_mid_db = float(eq_settings.get("low_mid", 0.0))
+        gains[(freqs >= 200) & (freqs < 500)] *= db_to_linear(low_mid_db)
+
+        mid_db = float(eq_settings.get("mid", 0.0))
+        gains[(freqs >= 500) & (freqs < 2000)] *= db_to_linear(mid_db)
+
+        presence_db = float(eq_settings.get("presence", 0.0))
+        gains[(freqs >= 2000) & (freqs < 5000)] *= db_to_linear(presence_db)
+
+        high_shelf_db = float(eq_settings.get("high_shelf", 0.0))
+        gains[freqs >= 5000] *= db_to_linear(high_shelf_db)
 
     processed_spectrum = spectrum * gains
     processed = np.fft.irfft(processed_spectrum, n=n)
 
-    # Keep safe output range
     peak = np.max(np.abs(processed)) + 1e-12
     if peak > 1.0:
         processed = processed / peak
@@ -59,17 +77,28 @@ def apply_fft_eq(samples: np.ndarray, sample_rate: int, eq_settings: dict) -> np
 
 
 def process_file(input_file: str | Path, output_file: str | Path, eq_settings: dict) -> None:
+    print("EQ SETTINGS KEYS:", eq_settings.keys())
+    
     samples, sample_rate = sf.read(str(input_file), always_2d=False)
 
-    stereo = False
     if samples.ndim > 1:
-        stereo = True
         channels = []
+
         for ch in range(samples.shape[1]):
-            processed_ch = apply_fft_eq(samples[:, ch].astype(np.float32), sample_rate, eq_settings)
+            processed_ch = apply_fft_eq(
+                samples[:, ch].astype(np.float32),
+                sample_rate,
+                eq_settings,
+            )
             channels.append(processed_ch)
+
         processed = np.stack(channels, axis=1)
+
     else:
-        processed = apply_fft_eq(samples.astype(np.float32), sample_rate, eq_settings)
+        processed = apply_fft_eq(
+            samples.astype(np.float32),
+            sample_rate,
+            eq_settings,
+        )
 
     sf.write(str(output_file), processed, sample_rate)

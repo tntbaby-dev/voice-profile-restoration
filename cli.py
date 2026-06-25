@@ -34,9 +34,8 @@ def main():
 
     # 🔥 your reference files (keep same as before)
     reference_files = [
-        "/Users/mac/Desktop/BRANDING/Sound_Design/Voice_Training_Data_Blueprint/training_data/grace_rap.wav",
-        "/Users/mac/Desktop/BRANDING/Sound_Design/Voice_Training_Data_Blueprint/training_data/fast_rap_001.wav",
-        "/Users/mac/Desktop/BRANDING/Sound_Design/Voice_Training_Data_Blueprint/training_data/slow_rap_002.wav",
+        "/Users/mac/Desktop/BRANDING/Sound_Design/Voice_Training_Data_Blueprint/training_data/master_sample_001.wav",
+    "/Users/mac/Desktop/BRANDING/Sound_Design/Voice_Training_Data_Blueprint/training_data/master_sample_002.wav",
     ]
 
     reference_profile = build_speaker_profile(reference_files)
@@ -53,7 +52,7 @@ def main():
         process_one_file(
             wav,
             reference_profile,
-            iterations=3,
+            iterations=1,
         )
 
     print("\nDone.")
